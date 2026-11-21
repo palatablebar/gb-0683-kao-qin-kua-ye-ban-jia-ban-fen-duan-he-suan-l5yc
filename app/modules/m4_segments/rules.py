@@ -5,10 +5,11 @@ from app.errors import DomainError
 def split_shift(shift):
     if shift['in'] is None or shift['out'] is None:raise DomainError('MISSING','班次缺少进出打卡')
     a=shift['in'];b=shift['out'];start=datetime.fromisoformat(a['at']).astimezone(ZONE);end=datetime.fromisoformat(b['at']).astimezone(ZONE)
-    planned_start,planned_end,bs,be=schedule(a)
+    profile=a.get('_profile','v1')
     if start>=end or end-start>timedelta(hours=18):raise DomainError('RANGE','打卡时长超出18小时')
+    planned_start,planned_end,bs,be=schedule(a)
     if start<planned_start-timedelta(hours=6) or end>planned_end+timedelta(hours=6):raise DomainError('RANGE','打卡超出班次范围')
-    if start.second or end.second or start.microsecond or end.microsecond:raise DomainError('RANGE','打卡精度必须为整分钟')
+    if profile!='v2' and (start.second or end.second or start.microsecond or end.microsecond):raise DomainError('RANGE','打卡精度必须为整分钟')
     boundaries={start,end}
     for d in (bs,be):
         if start<d<end:boundaries.add(d)
@@ -17,7 +18,11 @@ def split_shift(shift):
     points=sorted(boundaries);segments=[]
     for left,right in zip(points,points[1:]):
         if bs<=left<be:continue
-        segments.append({'id':shift['id'],'employee':shift['employee'],'shift_day':shift['day'],'calendar_day':left.date().isoformat(),'start':left.isoformat(),'end':right.isoformat(),'minutes':int((right-left).total_seconds()//60),'rate':str(a['hourly_rate']),'line':a['_line']})
+        seconds=(right-left).total_seconds()
+        # v1 整分钟；v2 带秒，按整分钟向下截断（秒不计薪，页面保留原始带秒时刻）
+        minutes=int(seconds//60)
+        if minutes<=0:continue
+        segments.append({'id':shift['id'],'employee':shift['employee'],'shift_day':shift['day'],'calendar_day':left.date().isoformat(),'start':left.isoformat(),'end':right.isoformat(),'minutes':minutes,'rate':str(a['hourly_rate']),'line':a['_line'],'source':a.get('_source',''),'profile':profile})
     return segments
 
 def apply(state):
@@ -25,5 +30,5 @@ def apply(state):
     for shift in state['shifts']:
         try:out.extend(split_shift(shift))
         except DomainError as e:
-            for r in shift['sources']:bad.add(r['_line']);state['quarantine'].append({'line':r['_line'],'id':r['id'],'code':e.code,'raw':r['_raw']})
+            for r in shift['sources']:bad.add(r['_line']);state['quarantine'].append({'line':r['_line'],'id':r['id'],'code':e.code,'raw':r['_raw'],**({'source':r['_source']} if r.get('_source') else {})})
     state['rows']=[r for r in state['rows'] if r['_line'] not in bad];state['segments']=out;return state

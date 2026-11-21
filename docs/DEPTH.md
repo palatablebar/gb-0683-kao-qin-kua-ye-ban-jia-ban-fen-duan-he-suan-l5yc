@@ -39,3 +39,17 @@
 ## 已知不覆盖
 
 不做多租户权限和外部服务联调。行业规则以项目数据字典为准。文件上限2MB，逐行解析后在上限内完成分组计算。
+
+## M8 月度多模板发布
+
+| 环节 | 核心文件 | 说明 |
+|---|---|---|
+| 模板裁决 | `m8_ledger/profiles.py` | 表头签名整体认定 v1/v2，矛盾整份 TEMPLATE 拒收 |
+| 逐源读取 | `m8_ledger/source_reader.py` | 独立解码、计数、行级隔离 |
+| 归一去重 | `m8_ledger/canonicalize.py` | 统一模型，跨文件 (id,version) 去重与冲突隔离 |
+| 休息合成 | `m8_ledger/break_window.py` | v2 休息分钟在实际打卡区间中点居中 |
+| 模板感知配对/切段 | `m3_versions/rules.py`、`m4_segments/rules.py` | v2 带秒、按整分钟截断计薪 |
+| 版本与发布 | `m8_ledger/ledger_store.py` | 来源指纹、数据集版本、superseded 作废链、发布指针原子切换 |
+| 同源导出 | `m8_ledger/export_monthly.py` | 来源解释、原始打卡、应付片段、隔离一CSV |
+
+验证见 `tests/test_ledger_month.py`，裁决书见 `docs/LEDGER-RULING.md`。

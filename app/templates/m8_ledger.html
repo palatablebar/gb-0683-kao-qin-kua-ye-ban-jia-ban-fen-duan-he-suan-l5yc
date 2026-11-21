@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="sheet-layout">
+  <section class="panel sheet">
+    <header><h2>月度来源与解释方式</h2><span>月份 {{month}} · {{sources|length}} 份已登记</span></header>
+    <div class="scroll">
+      <table class="ledger">
+        <thead><tr><th>#</th><th>源文件</th><th>内容指纹 sha256:16</th><th>登记时间(UTC)</th></tr></thead>
+        <tbody>
+        {% for s in sources %}
+          <tr><td class="rownum">{{loop.index}}</td><td tabindex="0">{{s.name}}</td><td class="hash">{{s.sha}}</td><td>{{s.registered_at[:19]}}</td></tr>
+        {% else %}
+          <tr><td colspan="4" class="error">尚未登记源文件</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <form id="source-form" class="button-row">
+      <input type="text" name="name" placeholder="源文件名 如 06_late.csv" required>
+      <textarea name="csv" rows="3" placeholder="粘贴 CSV 原文（模板按整份表头裁决）"></textarea>
+      <button type="submit">登记/覆盖来源</button>
+      <button type="button" id="rebuild">重算月度数据集</button>
+    </form>
+  </section>
+
+  <section class="panel side">
+    <header><h2>发布状态</h2></header>
+    {% if data %}
+    <dl>
+      <dt>数据集</dt><dd class="hash">{{data.dataset_id}}</dd>
+      <dt>复核</dt><dd>{{data.decision}} · v{{data.review_version}}</dd>
+      <dt>发布</dt><dd>{{'已发布 '+(data.published_at or '')[:16] if data.published else '未发布'}}</dd>
+      <dt>来源状态</dt><dd class="{{'error' if data.superseded else ''}}">{{'已作废：来源变动，需重新核对' if data.superseded else '与当前来源一致'}}</dd>
+    </dl>
+    <div class="button-row">
+      <button id="review" data-id="{{data.dataset_id}}" data-version="{{data.review_version}}">复核通过</button>
+      <button id="publish" data-id="{{data.dataset_id}}">发布本月结果</button>
+      <a href="/api/m8_ledger/datasets/{{data.dataset_id}}/export.csv?month={{month}}">导出同一结果 CSV</a>
+    </div>
+    <p class="hash">导出校验 {{checksum[:16]}}…</p>
+    {% else %}<p class="error">暂无数据集，请先登记来源并重算。</p>{% endif %}
+  </section>
+</div>
+
+{% if data %}
+<div class="sheet-layout">
+  <section class="panel sheet">
+    <header><h2>每份源文件的解释方式与应付</h2><span>{{data.sources|length}} 份采信 / {{data.rejected_sources|length}} 份拒收</span></header>
+    <div class="scroll">
+      <table class="ledger">
+        <thead><tr><th>源文件</th><th>解释方式</th><th>编码</th><th>输入行</th><th>采纳</th><th>隔离</th><th>原始实发 paid</th></tr></thead>
+        <tbody>
+        {% for s in data.sources %}
+          <tr><td tabindex="0">{{s.source}}</td><td>{{s.profile_label}}</td><td>{{s.encoding}}</td><td class="num">{{s.input_count}}</td><td class="num">{{s.accepted_count}}</td><td class="num">{{s.quarantined_count}}</td><td class="num">{{s.paid}}</td></tr>
+        {% endfor %}
+        {% for r in data.rejected_sources %}
+          <tr><td tabindex="0">{{r.source}}</td><td colspan="5" class="error">整份拒收：{{r.code}} {{r.message}}</td><td class="num">—</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="panel side">
+    <header><h2>月度应付</h2></header>
+    <div class="reconcile-grid">
+      <div><label>输入</label><b>{{data.reconcile.input}}</b></div>
+      <div><label>采纳</label><b>{{data.reconcile.accepted}}</b></div>
+      <div><label>隔离</label><b>{{data.reconcile.isolated}}</b></div>
+      <div><label>对账</label><b>{{'平' if data.reconcile.balanced else '不平'}}</b></div>
+      <div><label>工作分钟</label><b>{{data.business.minutes}}</b></div>
+      <div><label>应发 CNY</label><b>{{data.business.total}}</b></div>
+      <div><label>实发 CNY</label><b>{{data.business.paid}}</b></div>
+      <div><label>差额 CNY</label><b>{{data.business.difference}}</b></div>
+    </div>
+  </section>
+</div>
+
+<div class="sheet-layout">
+  <section class="panel sheet">
+    <header><h2>班次结果（同一解释模型，不拆班）</h2><span>{{data.shifts|length}} 班</span></header>
+    <div class="scroll">
+      <table class="ledger">
+        <thead><tr><th>#</th><th>员工</th><th>班次日</th><th>模板</th><th>IN 来源/原始打卡</th><th>OUT 来源/原始打卡</th></tr></thead>
+        <tbody>
+        {% for sh in data.shifts %}
+          <tr><td class="rownum">{{loop.index}}</td><td tabindex="0">{{sh.employee}}</td><td>{{sh.day}}</td><td>{{sh.profile}}</td>
+          <td>{{sh.source_in}}#L{{sh['in']._line if sh['in'] else '—'}} {{sh['in'].at if sh['in'] else '缺卡'}}</td>
+          <td>{{sh.source_out}}#L{{sh['out']._line if sh['out'] else '—'}} {{sh['out'].at if sh['out'] else '缺卡'}}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  <section class="panel side">
+    <header><h2>应付片段</h2></header>
+    <div class="scroll">
+      <table class="ledger">
+        <thead><tr><th>班次</th><th>来源</th><th>倍率</th><th>分钟</th><th>金额</th></tr></thead>
+        <tbody>
+        {% for c in data.calculations %}
+          <tr><td tabindex="0">{{c.id}}</td><td>{{c.source}}</td><td>{{c.code}}×{{c.multiplier}}</td><td class="num">{{c.minutes}}</td><td class="num">{{c.amount}}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<div class="sheet-layout">
+  <section class="panel sheet">
+    <header><h2>原始打卡（全量可查）</h2><span>{{data.rows|length}} 条</span></header>
+    <div class="scroll">
+      <table class="ledger">
+        <thead><tr><th>来源</th><th>行</th><th>模板</th><th>ID</th><th>员工</th><th>方向</th><th>原始打卡时刻</th></tr></thead>
+        <tbody>
+        {% for r in data.rows %}
+          <tr><td>{{r._source}}</td><td class="rownum">{{r._line}}</td><td>{{r._profile}}</td><td tabindex="0">{{r.id}}</td><td>{{r.employee}}</td><td>{{r.punch}}</td><td>{{r.at}}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {% include "exceptions_ledger.html" %}
+</div>
+
+<div class="sheet-layout">
+  <section class="panel sheet">
+    <header><h2>数据集版本</h2><span>{{datasets|length}} 个</span></header>
+    <div class="scroll">
+      <table class="ledger">
+        <thead><tr><th>数据集</th><th>复核</th><th>状态</th><th>发布</th><th>生成时间(UTC)</th></tr></thead>
+        <tbody>
+        {% for d in datasets %}
+          <tr><td tabindex="0">{{d.dataset_id}}</td><td>{{d.decision}} v{{d.version}}</td>
+          <td class="{{'error' if d.superseded else ''}}">{{'已作废（来源变动）' if d.superseded else '当前'}}</td>
+          <td>{{'发布中' if d.published else '—'}}</td><td>{{d.created_at[:19]}}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endif %}
+<script src="/static/ledger.js" defer></script>
+{% endblock %}

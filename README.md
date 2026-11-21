@@ -19,6 +19,7 @@ docker compose up --build -d
 - 工时切段：`/m5_calculate`、`/api/m5_calculate`
 - 薪资对账：`/m6_reconcile`、`/api/m6_reconcile`
 - 周期归档：`/m7_archive`、`/api/m7_archive`
+- 月度发布：`/m8_ledger`（多模板混合月的来源登记、数据集版本、复核与发布，裁决见 `docs/LEDGER-RULING.md`）
 
 ## 核心规则
 
@@ -31,7 +32,11 @@ docker compose exec -T app pytest -q
 docker compose config --quiet
 ```
 
-原始样例在 `sample_data/`。测试在 `tests/`。封存文件是单份CSV，含运行清单、计算证据、隔离原因与对账。复核需提交当前版本，陈旧复核返回409。
+原始样例在 `sample_data/`，混合模板月度样例在 `sample_data/month_2026_10/`。测试在 `tests/`。封存文件是单份CSV，含运行清单、计算证据、隔离原因与对账。复核需提交当前版本，陈旧复核返回409。
+
+## 月度多模板（M8）
+
+模板按源文件表头整体裁决（v1 整分钟/休息起止；v2 带秒/休息分钟），签名矛盾整份拒收；v2 休息分钟在实际打卡区间中点居中扣除。来源登记后重算月度数据集，来源内容变动即作废旧发布版并重新核对，发布指针原子切换，页面与导出共用同一数据集。接口前缀 `/api/m8_ledger`。
 
 ## 数据与限制
 
